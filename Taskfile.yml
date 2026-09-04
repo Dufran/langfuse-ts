@@ -1,0 +1,84 @@
+version: "3"
+
+silent: true
+
+vars:
+  COMPOSE: docker compose
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  init:
+    desc: Create .env from .env.example without overwriting an existing file
+    status:
+      - test -f .env
+    cmds:
+      - cp .env.example .env
+      - echo "Created .env. Replace every CHANGE_ME value before starting the stack."
+
+  validate:
+    desc: Validate the resolved Compose configuration
+    preconditions:
+      - sh: test -f .env
+        msg: Run `task init` first.
+    cmds:
+      - '{{.COMPOSE}} config --quiet'
+      - echo "Compose configuration is valid."
+
+  pull:
+    desc: Pull all service images
+    cmds:
+      - '{{.COMPOSE}} pull'
+      - '{{.COMPOSE}} --profile tools pull minio-backup'
+
+  up:
+    desc: Start or update Langfuse in the background
+    deps: [validate]
+    cmds:
+      - '{{.COMPOSE}} up -d --remove-orphans'
+      - '{{.COMPOSE}} ps'
+
+  down:
+    desc: Stop the stack without deleting data
+    cmds:
+      - '{{.COMPOSE}} down'
+
+  restart:
+    desc: Restart all long-running services
+    cmds:
+      - '{{.COMPOSE}} restart'
+
+  ps:
+    desc: Show service status
+    cmds:
+      - '{{.COMPOSE}} ps'
+
+  logs:
+    desc: Follow logs (use SERVICE=langfuse-web to select one service)
+    cmds:
+      - '{{.COMPOSE}} logs --tail=200 -f {{.SERVICE}}'
+
+  backup:
+    desc: Back up ClickHouse and MinIO to Cloudflare R2
+    preconditions:
+      - sh: test -f .env
+        msg: Run `task init` first.
+    cmds:
+      - ./scripts/backup-r2.sh
+
+  backups:
+    desc: List files stored under the configured R2 backup prefix
+    cmds:
+      - >-
+        {{.COMPOSE}} --profile tools run --rm --no-deps --entrypoint /bin/sh minio-backup -eu -c
+        'mc alias set r2 "$AWS_S3_ENDPOINT_URL" "$AWS_S3_ACCESS_KEY_ID" "$AWS_S3_SECRET_ACCESS_KEY" --api S3v4 >/dev/null;
+        mc ls --recursive "r2/$AWS_S3_BUCKET_NAME"'
+
+  config-backup:
+    desc: Archive deployment configuration locally (never includes .env)
+    cmds:
+      - mkdir -p backups
+      - tar -czf "backups/langfuse-config-$$(date -u +%Y%m%dT%H%M%SZ).tar.gz" compose.yml Taskfile.yml README.md .env.example scripts
