@@ -100,6 +100,9 @@ services:
         condition: service_healthy
     environment:
       <<: *langfuse-environment
+      # Docker shares the Tailscale container's hostname. Force Next.js to
+      # listen on every interface so Tailscale Serve can reach it via loopback.
+      HOSTNAME: 0.0.0.0
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?Set NEXTAUTH_SECRET in .env}
       LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANGFUSE_S3_PUBLIC_ENDPOINT:?Set LANGFUSE_S3_PUBLIC_ENDPOINT in .env}
       LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://minio:9000
