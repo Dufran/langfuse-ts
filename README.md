@@ -3,6 +3,7 @@
 A private Docker Compose deployment of Langfuse v4 with:
 
 - Langfuse web and worker services
+- the self-hosted Langfuse Assistant and Ask AI through a configurable model provider
 - PostgreSQL, ClickHouse, Redis, and MinIO
 - a Tailscale sidecar that exposes Langfuse only inside the tailnet
 - coordinated ClickHouse and MinIO backups to Cloudflare R2
@@ -43,6 +44,7 @@ The web container shares the Tailscale container's network namespace, following 
 - a Tailscale tailnet with MagicDNS and HTTPS certificates enabled
 - a reusable, pre-authorized Tailscale auth key; preferably ephemeral or tagged with an ACL-restricted tag
 - an existing Cloudflare R2 bucket and R2 API token with Object Read & Write access
+- Langfuse `>=4.28.0` and an OpenAI-compatible, Anthropic, or Amazon Bedrock model for the Assistant
 - approximately **4 CPU cores, 16 GiB RAM, and 100 GiB disk** as a practical starting point recommended by Langfuse; size for your ingestion volume
 
 The Docker host must be able to reach Tailscale control servers, the image registries, and the backup S3 endpoint.
@@ -89,7 +91,19 @@ The Docker host must be able to reach Tailscale control servers, the image regis
 
    Do not include the bucket name or a trailing slash in `AWS_S3_ENDPOINT_URL`.
 
-5. Validate and start:
+5. Configure the Langfuse Assistant in `.env`:
+
+   ```dotenv
+   LANGFUSE_IN_APP_AGENT_ENABLED=true
+   LANGFUSE_AI_PROVIDER=openai
+   LANGFUSE_AI_MODEL=deepseek/deepseek-v4-flash-0731
+   LANGFUSE_AI_API_KEY=<openrouter-api-key>
+   LANGFUSE_AI_BASE_URL=https://openrouter.ai/api/v1
+   ```
+
+   The defaults use DeepSeek through OpenRouter's OpenAI-compatible API; add your real OpenRouter key only to the ignored `.env` file. Use `LANGFUSE_AI_PROVIDER=anthropic` for the Anthropic Messages API. For Bedrock, use `bedrock`, leave `LANGFUSE_AI_API_KEY` blank, optionally set `LANGFUSE_AI_AWS_BEDROCK_REGION`, and provide AWS credentials to both application containers through the AWS credential chain. For another compatible gateway, set `LANGFUSE_AI_BASE_URL` to its full `/v1` URL. No separate Assistant container is required: web enqueues runs and exposes MCP, while the worker executes them.
+
+6. Validate and start:
 
    ```bash
    task validate
@@ -98,7 +112,7 @@ The Docker host must be able to reach Tailscale control servers, the image regis
    task logs SERVICE=langfuse-web
    ```
 
-   Startup and migrations can take several minutes. Open `NEXTAUTH_URL` once the web service reports that it is ready.
+   Startup and migrations can take several minutes. Open `NEXTAUTH_URL` once the web service reports that it is ready. Then sign in as an organization owner/admin, enable **AI Features** in organization settings, and open the Assistant in a project.
 
 ## Environment variables
 
@@ -109,6 +123,7 @@ The Docker host must be able to reach Tailscale control servers, the image regis
 | Images | `LANGFUSE_VERSION`, `POSTGRES_VERSION`, `CLICKHOUSE_VERSION`, `REDIS_VERSION`, `MINIO_VERSION`, `TAILSCALE_VERSION`, `MINIO_MC_VERSION` |
 | Tailscale/public URLs | `TS_HOSTNAME`, `TS_AUTHKEY`, `NEXTAUTH_URL`, `LANGFUSE_S3_PUBLIC_ENDPOINT` |
 | Langfuse secrets | `NEXTAUTH_SECRET`, `SALT`, `ENCRYPTION_KEY` |
+| Assistant | `LANGFUSE_IN_APP_AGENT_ENABLED`, `LANGFUSE_AI_PROVIDER`, `LANGFUSE_AI_MODEL`, `LANGFUSE_AI_SMALL_MODEL`, `LANGFUSE_AI_API_KEY`, `LANGFUSE_AI_BASE_URL`, `LANGFUSE_AI_EXTRA_HEADERS`, `LANGFUSE_AI_USE_RESPONSES_API`, `LANGFUSE_AI_AWS_BEDROCK_REGION`, `LANGFUSE_AI_FEATURES_PROJECT_ID` |
 | PostgreSQL | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` |
 | ClickHouse/Redis | `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, `REDIS_AUTH` |
 | Internal object storage | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `MINIO_BUCKET`, `MINIO_REGION` |
@@ -252,6 +267,17 @@ docker compose logs tailscale minio langfuse-web
 ```
 
 Port `9090` is the S3 API, not the MinIO administration console. The console is intentionally not exposed.
+
+### Assistant is unavailable or runs remain queued
+
+Confirm the deployed Langfuse version is `>=4.28.0`, `LANGFUSE_IN_APP_AGENT_ENABLED=true`, and the provider, model, and credentials are valid. Recreate rather than restart the application containers after changing `.env`:
+
+```bash
+docker compose up -d --force-recreate langfuse-web langfuse-worker
+docker compose logs langfuse-web langfuse-worker
+```
+
+The worker uses `http://tailscale:3000/api/public/mcp` internally. A `403 Invalid Host header` indicates that the web container's `LANGFUSE_MCP_ALLOWED_HOSTS` does not include `tailscale`. This setup intentionally runs without the optional AWS Lambda MicroVM sandbox, so file and code-execution tools are unavailable; the built-in Langfuse/MCP tools still work.
 
 ### A service is unhealthy
 

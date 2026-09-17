@@ -33,6 +33,17 @@ x-langfuse-environment: &langfuse-environment
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in .env}
   TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-false}
   LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: ${LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES:-false}
+  # Instance-wide model used by the Assistant and Ask AI (Langfuse >= 4.28.0).
+  LANGFUSE_IN_APP_AGENT_ENABLED: ${LANGFUSE_IN_APP_AGENT_ENABLED:-false}
+  LANGFUSE_AI_PROVIDER: ${LANGFUSE_AI_PROVIDER:-}
+  LANGFUSE_AI_MODEL: ${LANGFUSE_AI_MODEL:-}
+  LANGFUSE_AI_SMALL_MODEL: ${LANGFUSE_AI_SMALL_MODEL:-}
+  LANGFUSE_AI_API_KEY: ${LANGFUSE_AI_API_KEY:-}
+  LANGFUSE_AI_BASE_URL: ${LANGFUSE_AI_BASE_URL:-}
+  LANGFUSE_AI_EXTRA_HEADERS: ${LANGFUSE_AI_EXTRA_HEADERS:-}
+  LANGFUSE_AI_USE_RESPONSES_API: ${LANGFUSE_AI_USE_RESPONSES_API:-}
+  LANGFUSE_AI_AWS_BEDROCK_REGION: ${LANGFUSE_AI_AWS_BEDROCK_REGION:-}
+  LANGFUSE_AI_FEATURES_PROJECT_ID: ${LANGFUSE_AI_FEATURES_PROJECT_ID:-}
   CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
   CLICKHOUSE_URL: http://clickhouse:8123
   CLICKHOUSE_USER: ${CLICKHOUSE_USER:?Set CLICKHOUSE_USER in .env}
@@ -104,6 +115,9 @@ services:
       # listen on every interface so Tailscale Serve can reach it via loopback.
       HOSTNAME: 0.0.0.0
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?Set NEXTAUTH_SECRET in .env}
+      # The worker reaches this web container through the Tailscale sidecar's
+      # shared network namespace. Permit that internal Host header for MCP.
+      LANGFUSE_MCP_ALLOWED_HOSTS: tailscale
       LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANGFUSE_S3_PUBLIC_ENDPOINT:?Set LANGFUSE_S3_PUBLIC_ENDPOINT in .env}
       LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://minio:9000
       LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-}
@@ -130,6 +144,8 @@ services:
         condition: service_healthy
     environment:
       <<: *langfuse-environment
+      # Keep NEXTAUTH_URL public; use the internal route only for Assistant MCP.
+      LANGFUSE_MCP_BASE_URL: http://tailscale:3000
 
   clickhouse:
     image: clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-25.12}
