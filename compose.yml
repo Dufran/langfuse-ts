@@ -160,10 +160,15 @@ services:
       CLICKHOUSE_DATA_RETENTION_DAYS: ${CLICKHOUSE_DATA_RETENTION_DAYS:-90}
     volumes:
       - ./scripts/apply-clickhouse-retention.mjs:/opt/langfuse-hooks/apply-clickhouse-retention.mjs:ro
-    # The worker entrypoint owns ClickHouse migrations. This hook runs alongside
-    # it, waits for migrations to settle, and then applies the global TTL.
+    # Run retention asynchronously so waiting for migrations does not keep the
+    # worker in Compose's "Starting" state. Output is forwarded to worker logs.
     post_start:
-      - command: ["node", "/opt/langfuse-hooks/apply-clickhouse-retention.mjs"]
+      - command:
+          - /bin/sh
+          - -c
+          - >-
+            node /opt/langfuse-hooks/apply-clickhouse-retention.mjs
+            </dev/null >/proc/1/fd/1 2>/proc/1/fd/2 &
 
   clickhouse:
     image: clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-25.12}
