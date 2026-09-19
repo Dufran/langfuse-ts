@@ -26,6 +26,17 @@ configs:
         }
       }
 
+  clickhouse-disable-logs:
+    content: |
+      <clickhouse>
+        <trace_log remove="1"/>
+        <text_log remove="1"/>
+        <opentelemetry_span_log remove="1"/>
+        <asynchronous_metric_log remove="1"/>
+        <metric_log remove="1"/>
+        <latency_log remove="1"/>
+      </clickhouse>
+
 x-langfuse-environment: &langfuse-environment
   NEXTAUTH_URL: ${NEXTAUTH_URL:?Set NEXTAUTH_URL in .env}
   DATABASE_URL: postgresql://${POSTGRES_USER:?Set POSTGRES_USER}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:?Set POSTGRES_DB}
@@ -146,6 +157,13 @@ services:
       <<: *langfuse-environment
       # Keep NEXTAUTH_URL public; use the internal route only for Assistant MCP.
       LANGFUSE_MCP_BASE_URL: http://tailscale:3000
+      CLICKHOUSE_DATA_RETENTION_DAYS: ${CLICKHOUSE_DATA_RETENTION_DAYS:-90}
+    volumes:
+      - ./scripts/apply-clickhouse-retention.mjs:/opt/langfuse-hooks/apply-clickhouse-retention.mjs:ro
+    # The worker entrypoint owns ClickHouse migrations. This hook runs alongside
+    # it, waits for migrations to settle, and then applies the global TTL.
+    post_start:
+      - command: ["node", "/opt/langfuse-hooks/apply-clickhouse-retention.mjs"]
 
   clickhouse:
     image: clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-25.12}
@@ -157,6 +175,9 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
+    configs:
+      - source: clickhouse-disable-logs
+        target: /etc/clickhouse-server/config.d/disable-system-logs.xml
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]

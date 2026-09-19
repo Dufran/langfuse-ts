@@ -39,7 +39,7 @@ The web container shares the Tailscale container's network namespace, following 
 
 ## Requirements
 
-- Docker Engine with Docker Compose v2
+- Docker Engine with Docker Compose v2.30.0 or newer (`post_start` hook support)
 - [Task](https://taskfile.dev/) (recommended; direct Compose commands also work)
 - a Tailscale tailnet with MagicDNS and HTTPS certificates enabled
 - a reusable, pre-authorized Tailscale auth key; preferably ephemeral or tagged with an ACL-restricted tag
@@ -125,7 +125,7 @@ The Docker host must be able to reach Tailscale control servers, the image regis
 | Langfuse secrets | `NEXTAUTH_SECRET`, `SALT`, `ENCRYPTION_KEY` |
 | Assistant | `LANGFUSE_IN_APP_AGENT_ENABLED`, `LANGFUSE_AI_PROVIDER`, `LANGFUSE_AI_MODEL`, `LANGFUSE_AI_SMALL_MODEL`, `LANGFUSE_AI_API_KEY`, `LANGFUSE_AI_BASE_URL`, `LANGFUSE_AI_EXTRA_HEADERS`, `LANGFUSE_AI_USE_RESPONSES_API`, `LANGFUSE_AI_AWS_BEDROCK_REGION`, `LANGFUSE_AI_FEATURES_PROJECT_ID` |
 | PostgreSQL | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` |
-| ClickHouse/Redis | `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, `REDIS_AUTH` |
+| ClickHouse/Redis | `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, `CLICKHOUSE_DATA_RETENTION_DAYS`, `REDIS_AUTH` |
 | Internal object storage | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `MINIO_BUCKET`, `MINIO_REGION` |
 | Backup storage | `AWS_S3_BUCKET_NAME`, `AWS_S3_ENDPOINT_URL`, `AWS_S3_ACCESS_KEY_ID`, `AWS_S3_SECRET_ACCESS_KEY`, `AWS_S3_SIGNATURE_VERSION` |
 | Optional bootstrap | all `LANGFUSE_INIT_*` variables |
@@ -156,6 +156,17 @@ docker compose down
 ```
 
 Never run `docker compose down --volumes` unless you intentionally want to delete all local state.
+
+## ClickHouse data retention
+
+`CLICKHOUSE_DATA_RETENTION_DAYS` sets a global retention window for Langfuse time-series data (default: `90`). Whenever `langfuse-worker` starts, its Compose `post_start` hook waits for Langfuse's ClickHouse migrations and then applies an idempotent TTL to the `traces`, `observations`, `scores`, `event_log`, `events_full`, and `events_core` tables that exist in the installed Langfuse version.
+
+```bash
+# Recreate the worker and reapply after changing the value in .env.
+docker compose up -d langfuse-worker
+```
+
+The value must be a positive integer. ClickHouse removes expired rows asynchronously during background merges, so disk usage will not drop immediately. This policy is instance-wide and only covers ClickHouse application data; it does not remove PostgreSQL records, MinIO objects, or backups. Lowering retention can permanently remove existing data, so take a backup first.
 
 ## ClickHouse and MinIO backups to R2
 
